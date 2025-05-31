@@ -161,10 +161,29 @@ class DTX:
 		
 		return image
 		
+	
 	func read_32bit_texture(f : File):
 		var image = Image.new()
-		var data = f.get_buffer(self.width * self.height * 4)
-		image.create_from_data(self.width, self.height, false, Image.FORMAT_RGBA8, data)
+		var raw_data = f.get_buffer(self.width * self.height * 4)
+		
+		# Try swapping just red and blue channels (BGRA -> RGBA)
+		var rgba_data = PoolByteArray()
+		var i = 0
+		while i < raw_data.size():
+			var r = raw_data[i]     # What we think is Red
+			var g = raw_data[i + 1] # Green
+			var b = raw_data[i + 2] # What we think is Blue
+			var a = raw_data[i + 3] # Alpha
+			
+			# Swap red and blue: R<->B
+			rgba_data.append(b)  # Put blue in red channel
+			rgba_data.append(g)  # Keep green
+			rgba_data.append(r)  # Put red in blue channel  
+			rgba_data.append(a)  # Keep alpha
+			
+			i += 4
+		
+		image.create_from_data(self.width, self.height, false, Image.FORMAT_RGBA8, rgba_data)
 		return image
 	# End Func
 		
@@ -200,16 +219,16 @@ class DTX:
 		var _section_unk = f.get_buffer(12) # 10 bytes, and skip 2 filler bytes!
 		var _section_length = f.get_32()
 		
-		# Handle the palette
+		# Handle the palette - 32-bit packed BRGA colors
 		for _i in range(256):
 			# Here's the 32-bit part. Colour data is packed, so unpack it!
 			var packed_data = f.get_32()
 			var unpacked_data = self.convert_32_to_8_bit(packed_data)
 			
-			var a = unpacked_data.w
 			var r = unpacked_data.x
 			var g = unpacked_data.y
 			var b = unpacked_data.z
+			var a = unpacked_data.w
 
 			# Quat so we can use 0-255, stupid Color...
 			palette.append( Quat(r, g, b, a) )
@@ -219,10 +238,10 @@ class DTX:
 
 		# Apply the palette
 		while (i < data.size() ):
-			colour_data.append( palette[data[i]].x )
-			colour_data.append( palette[data[i]].y )
-			colour_data.append( palette[data[i]].z )
-			colour_data.append( palette[data[i]].w )
+			colour_data.append( palette[data[i]].x )  # R
+			colour_data.append( palette[data[i]].y )  # G
+			colour_data.append( palette[data[i]].z )  # B
+			colour_data.append( palette[data[i]].w )  # A
 			i += 1
 		# End While
 		
@@ -242,17 +261,17 @@ class DTX:
 		var _palette_header_1 = f.get_32()
 		var _palette_header_2 = f.get_32()
 
-		# Handle the palette
+		# Handle the palette - DTX format is BRGA, not RGBA
 		for _i in range(256):
-			var a = f.get_8()
-			var r = f.get_8()
-			var g = f.get_8()
-			var b = f.get_8()
+			var b = f.get_8()  # Blue comes first
+			var r = f.get_8()  # Then Red  
+			var g = f.get_8()  # Then Green
+			var a = f.get_8()  # Then Alpha
 
-			# Quat so we can use 0-255, stupid Color...
+			# Store in RGBA order for Godot
 			palette.append( Quat(r, g, b, a) )
 		# End For
-	
+
 		var data = f.get_buffer(self.width * self.height * 1)
 		var colour_data = PoolByteArray()
 		
@@ -260,10 +279,10 @@ class DTX:
 		
 		# Apply the palette
 		while (i < data.size() ):
-			colour_data.append( palette[data[i]].x )
-			colour_data.append( palette[data[i]].y )
-			colour_data.append( palette[data[i]].z )
-			colour_data.append( palette[data[i]].w )
+			colour_data.append( palette[data[i]].x )  # R
+			colour_data.append( palette[data[i]].y )  # G
+			colour_data.append( palette[data[i]].z )  # B
+			colour_data.append( palette[data[i]].w )  # A
 			i += 1
 		# End While
 		
@@ -280,12 +299,14 @@ class DTX:
 	# End Func
 	
 	func convert_32_to_8_bit(value):
-		var a = (value & 0xff000000) >> 24
-		var r = (value & 0x00ff0000) >> 16
-		var g = (value & 0x0000ff00) >>  8
-		var b = (value & 0x000000ff)
+		# Standard RGBA unpacking
+		var r = (value & 0x000000ff)        
+		var g = (value & 0x0000ff00) >>  8  
+		var b = (value & 0x00ff0000) >> 16  
+		var a = (value & 0xff000000) >> 24  
 
-		return Quat(r, g, b, a)
+		# Apply same red-blue swap as 32-bit texture
+		return Quat(b, g, r, a)  # Swap R and B for Godot
 	# End Func
 	
 	func read_string(file : File, is_length_a_short = true):
